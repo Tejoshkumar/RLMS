@@ -1,0 +1,22 @@
+import mongoose from 'mongoose';
+
+const stationSchema = new mongoose.Schema(
+  {
+    code: {
+      type: String,
+      required: true,
+      unique: true,
+    },
+    name: {
+      type: String,
+      required: true,
+    },
+  },
+  {
+    timestamps: true,
+  }
+);
+
+const Station = mongoose.model('Station', stationSchema);
+
+export default Station;
