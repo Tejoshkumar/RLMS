@@ -1,6 +1,11 @@
 import express from 'express';
+import { registerUser, loginUser, getMe } from '../controllers/authController.js';
+import { protect } from '../middleware/auth.js';
+
 const router = express.Router();
 
-// Placeholder for Member 1 - Not implemented yet
+router.post('/register', registerUser);
+router.post('/login', loginUser);
+router.get('/me', protect, getMe);
 
 export default router;
