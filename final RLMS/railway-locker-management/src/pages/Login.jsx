@@ -12,11 +12,11 @@ export default function Login() {
 
   const redirectTo = location.state?.from || '/'
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault()
     setError('')
     try {
-      login({ email, password })
+      await login({ email, password })
       navigate(redirectTo, { replace: true })
     } catch (err) {
       setError(err.message)

@@ -12,7 +12,7 @@ export default function Register() {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [error, setError] = useState('')
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault()
     setError('')
     if (password !== confirmPassword) {
@@ -20,8 +20,8 @@ export default function Register() {
       return
     }
     try {
-      register({ name, email, password, phone })
-      navigate('/', { replace: true })
+      await register({ name, email, password, phone })
+      navigate('/login', { replace: true })
     } catch (err) {
       setError(err.message)
     }

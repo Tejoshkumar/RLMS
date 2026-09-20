@@ -1,174 +1,92 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react'
+﻿import { createContext, useContext, useEffect, useState, useCallback } from 'react'
+import { apiRegister, apiLogin, apiGetMe } from '../api/authApi.js'
 
-// NOTE: This is a client-only demo auth system — users and passwords are
-// stored in plain form in localStorage. There is no backend, so this is
-// not secure and should be replaced with real authentication (hashed
-// passwords, server-issued sessions/tokens, etc.) before handling real users.
-
-const USERS_KEY = 'railway-locker-management:users'
-const SESSION_KEY = 'railway-locker-management:currentUserId'
-
-const PREDEFINED_ADMIN = {
-  id: 'admin-seed',
-  name: 'Station Admin',
-  email: 'admin@railway.com',
-  password: 'admin123',
-  phone: '',
-  role: 'admin',
-  createdAt: '2026-01-01T00:00:00.000Z',
-}
+// ---------------------------------------------------------------------------
+// Storage key for the JWT — we never store plaintext passwords.
+// ---------------------------------------------------------------------------
+const TOKEN_KEY = 'railway-locker-management:token'
 
 const AuthContext = createContext(null)
 
-function loadUsers() {
-  try {
-    const raw = localStorage.getItem(USERS_KEY)
-    if (raw) {
-      const parsed = JSON.parse(raw)
-      // Make sure the predefined admin always exists, even if the saved
-      // users list predates this account or was edited/cleared.
-      if (!parsed.some((u) => u.email.toLowerCase() === PREDEFINED_ADMIN.email)) {
-        parsed.push(PREDEFINED_ADMIN)
-      }
-      return parsed
-    }
-  } catch (err) {
-    console.warn('Could not read saved users, starting fresh.', err)
-  }
-  return [PREDEFINED_ADMIN]
-}
-
-function genId() {
-  return `user-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
-}
-
 export function AuthProvider({ children }) {
-  const [users, setUsers] = useState(loadUsers)
-  const [currentUserId, setCurrentUserId] = useState(() => localStorage.getItem(SESSION_KEY))
+  const [currentUser, setCurrentUser] = useState(null)
+  const [loading, setLoading] = useState(true) // true while we validate a stored token
 
+  // -------------------------------------------------------------------------
+  // On mount: if a JWT is stored, validate it with GET /api/auth/me.
+  // If the token is invalid or expired, clear it and treat user as logged out.
+  // -------------------------------------------------------------------------
   useEffect(() => {
-    localStorage.setItem(USERS_KEY, JSON.stringify(users))
-  }, [users])
-
-  useEffect(() => {
-    if (currentUserId) {
-      localStorage.setItem(SESSION_KEY, currentUserId)
-    } else {
-      localStorage.removeItem(SESSION_KEY)
+    const token = localStorage.getItem(TOKEN_KEY)
+    if (!token) {
+      setLoading(false)
+      return
     }
-  }, [currentUserId])
 
-  const currentUser = useMemo(
-    () => users.find((u) => u.id === currentUserId) || null,
-    [users, currentUserId]
-  )
+    apiGetMe(token)
+      .then((user) => setCurrentUser(user))
+      .catch(() => {
+        // Token invalid / expired — clear it silently
+        localStorage.removeItem(TOKEN_KEY)
+      })
+      .finally(() => setLoading(false))
+  }, [])
 
-  const api = useMemo(() => {
-    return {
-      currentUser,
+  // -------------------------------------------------------------------------
+  // register — calls POST /api/auth/register
+  // Note: backend does NOT return a token on register, so we navigate to login.
+  // Throws on failure so Register.jsx can display the error.
+  // -------------------------------------------------------------------------
+  const register = useCallback(async ({ name, email, phone, password }) => {
+    // Basic client-side validation (mirrors backend expectations)
+    if (!name?.trim()) throw new Error('Enter your name.')
+    if (password?.length < 6) throw new Error('Password must be at least 6 characters.')
+    if (!phone?.trim()) throw new Error('Enter your phone number.')
 
-     register({ name, email, password, phone }) {
-        const cleanEmail = email.trim().toLowerCase()
-        if (!name.trim()) throw new Error('Enter your name.')
-        if (!/^\S+@\S+\.\S+$/.test(cleanEmail)) throw new Error('Enter a valid email address.')
-        if (password.length < 6) throw new Error('Password must be at least 6 characters.')
-        if (users.some((u) => u.email.toLowerCase() === cleanEmail)) {
-          throw new Error('An account with that email already exists.')
-        }
+    // apiRegister throws on error with the backend message
+    const user = await apiRegister({ name: name.trim(), email: email.trim().toLowerCase(), phone: phone.trim(), password })
+    // Registration succeeded — return the user (caller navigates to /login)
+    return user
+  }, [])
 
-       const newUser = {
-  id: genId(),
-  name: name.trim(),
-  email: cleanEmail,
-  password,
-  phone: '',
-  role: 'user',
-  createdAt: new Date().toISOString(),
-}
-        setUsers((prev) => [...prev, newUser])
-        setCurrentUserId(newUser.id)
-        return newUser
-      },
+  // -------------------------------------------------------------------------
+  // login — calls POST /api/auth/login, stores JWT, sets currentUser
+  // Throws on failure so Login.jsx can display the error.
+  // -------------------------------------------------------------------------
+  const login = useCallback(async ({ email, password }) => {
+    const { user, token } = await apiLogin({ email: email.trim().toLowerCase(), password })
+    localStorage.setItem(TOKEN_KEY, token)
+    setCurrentUser(user)
+    return user
+  }, [])
 
-      login({ email, password }) {
-        const cleanEmail = email.trim().toLowerCase()
-        const user = users.find((u) => u.email.toLowerCase() === cleanEmail)
-        if (!user || user.password !== password) {
-          throw new Error('Incorrect email or password.')
-        }
-        setCurrentUserId(user.id)
-        return user
-      },
+  // -------------------------------------------------------------------------
+  // logout — removes JWT and clears user state
+  // -------------------------------------------------------------------------
+  const logout = useCallback(() => {
+    localStorage.removeItem(TOKEN_KEY)
+    setCurrentUser(null)
+  }, [])
 
-      logout() {
-        setCurrentUserId(null)
-      },
-      updateProfile({ name, email, phone }) {
-  const cleanName = name.trim()
-  const cleanEmail = email.trim().toLowerCase()
+  // -------------------------------------------------------------------------
+  // getToken — utility so other stores/components can attach auth headers
+  // -------------------------------------------------------------------------
+  const getToken = useCallback(() => localStorage.getItem(TOKEN_KEY), [])
 
-  if (!cleanName) {
-    throw new Error('Name cannot be empty.')
+  const value = {
+    currentUser,
+    loading,
+    register,
+    login,
+    logout,
+    getToken,
   }
 
-  if (!/^\S+@\S+\.\S+$/.test(cleanEmail)) {
-    throw new Error('Enter a valid email address.')
-  }
+  // While we are validating a stored token, render nothing to avoid a flash
+  // of the login page before the user is restored.
+  if (loading) return null
 
-  const emailExists = users.some(
-    (u) =>
-      u.id !== currentUserId &&
-      u.email.toLowerCase() === cleanEmail
-  )
-
-  if (emailExists) {
-    throw new Error('Another account already uses this email.')
-  }
-
-  setUsers((prev) =>
-    prev.map((user) =>
-      user.id === currentUserId
-        ? {
-            ...user,
-            name: cleanName,
-            email: cleanEmail,
-            phone: phone.trim(),
-          }
-        : user
-    )
-  )
-},
-
-changePassword({ currentPassword, newPassword }) {
-  const user = users.find((u) => u.id === currentUserId)
-
-  if (!user) {
-    throw new Error('User account not found.')
-  }
-
-  if (user.password !== currentPassword) {
-    throw new Error('Current password is incorrect.')
-  }
-
-  if (newPassword.length < 6) {
-    throw new Error('Password must be at least 6 characters.')
-  }
-
-  setUsers((prev) =>
-    prev.map((u) =>
-      u.id === currentUserId
-        ? {
-            ...u,
-            password: newPassword,
-          }
-        : u
-    )
-  )
-},
-    }
-  }, [users, currentUser])
-
-  return <AuthContext.Provider value={api}>{children}</AuthContext.Provider>
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 
 export function useAuth() {
