@@ -1,5 +1,10 @@
-import { createContext, useContext, useState } from 'react'
-import { SEED_LOCKERS } from '../data/mockData.js'
+import { createContext, useContext, useState, useEffect } from 'react'
+import { getLockers } from '../api/lockerApi.js'
+import {
+  getMyBookings,
+  createBooking as createBookingApi,
+  cancelBooking as cancelBookingApi,
+} from '../api/bookingApi.js'
 
 const LockerContext = createContext(null)
 
@@ -23,13 +28,9 @@ function loadInitialState() {
   }
 
   return {
-    lockers: SEED_LOCKERS,
+    lockers: [],
     bookings: [],
   }
-}
-
-function isTimeOverlapping(start1, end1, start2, end2) {
-  return start1 < end2 && start2 < end1
 }
 
 export function LockerProvider({ children }) {
@@ -37,6 +38,7 @@ export function LockerProvider({ children }) {
 
   function saveState(nextState) {
     setState(nextState)
+
     localStorage.setItem(
       STORAGE_KEY,
       JSON.stringify(nextState)
@@ -44,10 +46,61 @@ export function LockerProvider({ children }) {
   }
 
   // =========================
+  // LOAD DATA FROM BACKEND
+  // =========================
+
+  useEffect(() => {
+    ; (async () => {
+      try {
+        const lockerResponse = await getLockers()
+
+        const lockers =
+          Array.isArray(lockerResponse)
+            ? lockerResponse
+            : lockerResponse?.data || []
+
+        setState((prev) => ({
+          ...prev,
+          lockers,
+        }))
+
+        try {
+          const bookingResponse =
+            await getMyBookings()
+
+          const bookings =
+            Array.isArray(bookingResponse)
+              ? bookingResponse
+              : bookingResponse?.data || []
+
+          setState((prev) => ({
+            ...prev,
+            bookings,
+          }))
+        } catch (bookingError) {
+          console.warn(
+            'Could not load bookings:',
+            bookingError.message
+          )
+
+          setState((prev) => ({
+            ...prev,
+            bookings: [],
+          }))
+        }
+      } catch (lockerError) {
+        console.error(
+          'Failed to fetch lockers:',
+          lockerError
+        )
+      }
+    })()
+  }, [])
+  // =========================
   // CREATE BOOKING
   // =========================
 
-  function createBooking({
+  async function createBooking({
     userId,
     lockerId,
     station,
@@ -57,116 +110,75 @@ export function LockerProvider({ children }) {
     startTime,
     durationHours,
   }) {
-    const locker = state.lockers.find(
-      (l) => l.id === lockerId
-    )
+    const duration = Number(durationHours)
 
-    if (!locker) {
-      throw new Error('Locker not found.')
-    }
-
-    if (locker.outOfService) {
-      throw new Error(
-        'This locker is currently out of service.'
-      )
-    }
-
-    const start = new Date(
+    const startDate = new Date(
       `${bookingDate}T${startTime}`
     )
 
-    if (Number.isNaN(start.getTime())) {
-      throw new Error(
-        'Invalid booking date or time.'
-      )
-    }
-
-    const duration = Number(durationHours)
-
-    if (!duration || duration <= 0) {
-      throw new Error(
-        'Invalid booking duration.'
-      )
-    }
-
-    const end = new Date(
-      start.getTime() +
-        duration * 60 * 60 * 1000
+    const endDate = new Date(
+      startDate.getTime() +
+      duration * 60 * 60 * 1000
     )
 
-    // Check for overlapping booking
-    const conflictingBooking =
-      state.bookings.find((booking) => {
-        if (booking.lockerId !== lockerId) {
-          return false
-        }
-
-        // Cancelled/released bookings don't block locker
-        if (
-          booking.status === 'cancelled' ||
-          booking.status === 'released'
-        ) {
-          return false
-        }
-
-        const existingStart = new Date(
-          booking.startTime
-        )
-
-        const existingEnd = new Date(
-          booking.endTime
-        )
-
-        return isTimeOverlapping(
-          start,
-          end,
-          existingStart,
-          existingEnd
-        )
-      })
-
-    if (conflictingBooking) {
+    // Booking must remain on the same calendar day
+    if (
+      endDate.getDate() !== startDate.getDate() ||
+      endDate.getMonth() !== startDate.getMonth() ||
+      endDate.getFullYear() !== startDate.getFullYear()
+    ) {
       throw new Error(
-        'This locker is already booked for the selected date and time.'
+        'Booking duration cannot extend to the next day.'
       )
     }
 
-    const price =
-      Number(locker.pricePerBlock || 0) *
-      duration
+    const endTime = endDate
+      .toTimeString()
+      .slice(0, 5)
 
-    const booking = {
-      id: genId('BK'),
+    if (startTime >= endTime) {
+      throw new Error(
+        'Booking end time must be after start time.'
+      )
+    }
 
-      userId,
+    const payload = {
       lockerId,
-
-      station,
       holderName,
       phone,
-
       bookingDate,
-
-      startTime: start.toISOString(),
-      endTime: end.toISOString(),
-
-      durationHours: duration,
-      price,
-
-      status: 'active',
-
-      createdAt: new Date().toISOString(),
+      startTime,
+      endTime,
     }
+
+    console.log(
+      'Booking payload sent to backend:',
+      payload
+    )
+
+    const response = await createBookingApi(payload)
+
+    // Support both:
+    // response = booking
+    // OR
+    // response = { success, data: booking }
+    const booking =
+      response?.data || response
+
+    // Make absolutely sure bookings is an array
+    const currentBookings = Array.isArray(
+      state.bookings
+    )
+      ? state.bookings
+      : []
 
     const nextState = {
       ...state,
 
       bookings: [
-        ...state.bookings,
+        ...currentBookings,
         booking,
       ],
-
-      lockers: state.lockers,
     }
 
     saveState(nextState)
@@ -178,29 +190,32 @@ export function LockerProvider({ children }) {
   // RELEASE / CANCEL BOOKING
   // =========================
 
-  function releaseBooking(bookingId) {
-    const booking = state.bookings.find(
-      (b) => b.id === bookingId
-    )
-
-    if (!booking) {
-      return
-    }
+  async function releaseBooking(bookingId) {
+    // Call backend
+    const cancelledBooking =
+      await cancelBookingApi(bookingId)
 
     const nextState = {
       ...state,
 
-      bookings: state.bookings.map((b) =>
-        b.id === bookingId
-          ? {
-              ...b,
-              status: 'cancelled',
-            }
-          : b
-      ),
+      bookings: state.bookings.map((booking) => {
+        const currentId =
+          booking.id || booking._id
+
+        if (currentId === bookingId) {
+          return {
+            ...booking,
+            status: 'cancelled',
+          }
+        }
+
+        return booking
+      }),
     }
 
     saveState(nextState)
+
+    return cancelledBooking
   }
 
   // =========================
@@ -238,22 +253,29 @@ export function LockerProvider({ children }) {
 
   function removeLocker(lockerId) {
     const locker = state.lockers.find(
-      (l) => l.id === lockerId
+      (locker) =>
+        (locker.id || locker._id) === lockerId
     )
 
     if (!locker) {
       throw new Error('Locker not found.')
     }
 
-    // Don't remove locker if it has
-    // an active booking
+    // Don't remove locker if it has an active booking
     const hasActiveBooking =
-      state.bookings.some(
-        (booking) =>
-          booking.lockerId === lockerId &&
+      state.bookings.some((booking) => {
+        const bookingLockerId =
+          typeof booking.lockerId === 'object'
+            ? booking.lockerId.id ||
+            booking.lockerId._id
+            : booking.lockerId
+
+        return (
+          bookingLockerId === lockerId &&
           booking.status !== 'cancelled' &&
           booking.status !== 'released'
-      )
+        )
+      })
 
     if (hasActiveBooking) {
       throw new Error(
@@ -266,7 +288,7 @@ export function LockerProvider({ children }) {
 
       lockers: state.lockers.filter(
         (locker) =>
-          locker.id !== lockerId
+          (locker.id || locker._id) !== lockerId
       ),
     }
 
@@ -281,28 +303,29 @@ export function LockerProvider({ children }) {
     const nextState = {
       ...state,
 
-      lockers: state.lockers.map(
-        (locker) => {
-          if (locker.id !== lockerId) {
-            return locker
-          }
+      lockers: state.lockers.map((locker) => {
+        const currentId =
+          locker.id || locker._id
 
-          const goingOutOfService =
-            !locker.outOfService
-
-          return {
-            ...locker,
-
-            outOfService:
-              goingOutOfService,
-
-            status:
-              goingOutOfService
-                ? 'out-of-service'
-                : 'available',
-          }
+        if (currentId !== lockerId) {
+          return locker
         }
-      ),
+
+        const goingOutOfService =
+          !locker.outOfService
+
+        return {
+          ...locker,
+
+          outOfService:
+            goingOutOfService,
+
+          status:
+            goingOutOfService
+              ? 'out-of-service'
+              : 'available',
+        }
+      }),
     }
 
     saveState(nextState)
@@ -316,25 +339,34 @@ export function LockerProvider({ children }) {
     const nextState = {
       ...state,
 
-      lockers: state.lockers.map(
-        (locker) =>
-          locker.id === lockerId
-            ? {
-                ...locker,
-                status: 'available',
-              }
-            : locker
-      ),
+      lockers: state.lockers.map((locker) => {
+        const currentId =
+          locker.id || locker._id
+
+        return currentId === lockerId
+          ? {
+            ...locker,
+            status: 'available',
+          }
+          : locker
+      }),
 
       bookings: state.bookings.map(
-        (booking) =>
-          booking.lockerId === lockerId &&
-          booking.status === 'active'
+        (booking) => {
+          const bookingLockerId =
+            typeof booking.lockerId === 'object'
+              ? booking.lockerId.id ||
+              booking.lockerId._id
+              : booking.lockerId
+
+          return bookingLockerId === lockerId &&
+            booking.status === 'active'
             ? {
-                ...booking,
-                status: 'released',
-              }
+              ...booking,
+              status: 'released',
+            }
             : booking
+        }
       ),
     }
 

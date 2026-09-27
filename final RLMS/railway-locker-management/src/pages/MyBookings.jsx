@@ -5,7 +5,11 @@ import { useAuth } from '../store/AuthStore.jsx'
 function formatDate(value) {
   if (!value) return '—'
 
-  return new Date(value).toLocaleDateString('en-IN', {
+  const date = new Date(value)
+
+  if (Number.isNaN(date.getTime())) return '—'
+
+  return date.toLocaleDateString('en-IN', {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
@@ -15,7 +19,19 @@ function formatDate(value) {
 function formatTime(value) {
   if (!value) return '—'
 
-  return new Date(value).toLocaleTimeString('en-IN', {
+  // Backend stores time as HH:mm
+  if (
+    typeof value === 'string' &&
+    /^\d{2}:\d{2}$/.test(value)
+  ) {
+    return value
+  }
+
+  const date = new Date(value)
+
+  if (Number.isNaN(date.getTime())) return '—'
+
+  return date.toLocaleTimeString('en-IN', {
     hour: '2-digit',
     minute: '2-digit',
   })
@@ -33,48 +49,172 @@ export default function MyBookings() {
   const [selectedBooking, setSelectedBooking] =
     useState(null)
 
-  /*
-    IMPORTANT:
-    Only bookings belonging to the currently
-    logged-in user are displayed.
-  */
-  const myBookings = bookings.filter(
-    (booking) =>
-      booking.userId === currentUser?.id
-  )
+  // =========================
+  // NORMALIZE DATA
+  // =========================
 
-  function getLocker(lockerId) {
-    return lockers.find(
-      (locker) => locker.id === lockerId
+  const bookingList = Array.isArray(bookings)
+    ? bookings
+    : Array.isArray(bookings?.data)
+      ? bookings.data
+      : []
+
+  const lockerList = Array.isArray(lockers)
+    ? lockers
+    : Array.isArray(lockers?.data)
+      ? lockers.data
+      : []
+
+  // =========================
+  // CURRENT USER BOOKINGS
+  // =========================
+
+  const myBookings = bookingList.filter((booking) => {
+    const bookingUserId =
+      typeof booking.userId === 'object'
+        ? booking.userId?._id ||
+        booking.userId?.id
+        : booking.userId ||
+        booking.user?._id ||
+        booking.user?.id
+
+    const currentUserId =
+      currentUser?.id ||
+      currentUser?._id
+
+    return (
+      String(bookingUserId) ===
+      String(currentUserId)
+    )
+  })
+
+  // =========================
+  // GET LOCKER
+  // =========================
+
+  function getLocker(booking) {
+    // Backend populates lockerId
+    if (
+      booking?.lockerId &&
+      typeof booking.lockerId === 'object'
+    ) {
+      return booking.lockerId
+    }
+
+    // Older frontend structure
+    if (
+      booking?.locker &&
+      typeof booking.locker === 'object'
+    ) {
+      return booking.locker
+    }
+
+    // If lockerId is only an ID
+    const lockerId =
+      booking?.lockerId ||
+      booking?.locker?._id ||
+      booking?.locker?.id
+
+    if (!lockerId) return null
+
+    return lockerList.find((locker) => {
+      const id =
+        locker.id ||
+        locker._id
+
+      return String(id) === String(lockerId)
+    }) || null
+  }
+
+  // =========================
+  // GET LOCKER ID
+  // =========================
+
+  function getLockerId(booking) {
+    if (
+      booking?.lockerId &&
+      typeof booking.lockerId === 'object'
+    ) {
+      return (
+        booking.lockerId._id ||
+        booking.lockerId.id
+      )
+    }
+
+    return (
+      booking?.lockerId ||
+      booking?.locker?._id ||
+      booking?.locker?.id
     )
   }
 
-  function handleCancel(booking) {
+  // =========================
+  // CANCEL BOOKING
+  // =========================
+
+  async function handleCancel(booking) {
+    const bookingId =
+      booking.id ||
+      booking._id
+
+    const bookingUserId =
+      typeof booking.userId === 'object'
+        ? booking.userId?._id ||
+        booking.userId?.id
+        : booking.userId ||
+        booking.user?._id ||
+        booking.user?.id
+
+    const currentUserId =
+      currentUser?.id ||
+      currentUser?._id
+
     const confirmed = window.confirm(
-      `Are you sure you want to cancel booking ${booking.id}?`
+      `Are you sure you want to cancel booking ${bookingId}?`
     )
 
     if (!confirmed) return
 
-    /*
-      Extra safety check.
-      A user cannot cancel another user's booking.
-    */
-    if (booking.userId !== currentUser?.id) {
-      alert('You are not authorized to cancel this booking.')
+    // Frontend ownership check
+    if (
+      String(bookingUserId) !==
+      String(currentUserId)
+    ) {
+      alert(
+        'You are not authorized to cancel this booking.'
+      )
       return
     }
 
-   releaseBooking(
-  booking.id,
-  currentUser.id
-)
+    try {
+      await releaseBooking(bookingId)
+
+      if (
+        selectedBooking &&
+        String(
+          selectedBooking.id ||
+          selectedBooking._id
+        ) === String(bookingId)
+      ) {
+        setSelectedBooking(null)
+      }
+    } catch (error) {
+      alert(
+        error?.message ||
+        'Unable to cancel booking.'
+      )
+    }
   }
+
+  // =========================
+  // LOGIN CHECK
+  // =========================
 
   if (!currentUser) {
     return (
       <div className="empty">
         <h3>Please login</h3>
+
         <p>
           Login to view your bookings.
         </p>
@@ -82,8 +222,14 @@ export default function MyBookings() {
     )
   }
 
+  // =========================
+  // UI
+  // =========================
+
   return (
     <div className="booking-page">
+
+      {/* HEADER */}
 
       <div className="page-heading">
         <div>
@@ -100,6 +246,8 @@ export default function MyBookings() {
         </div>
       </div>
 
+      {/* BOOKINGS */}
+
       {myBookings.length === 0 ? (
         <div className="empty">
           <h3>No bookings yet</h3>
@@ -114,84 +262,108 @@ export default function MyBookings() {
         <div className="booking-list">
 
           {myBookings.map((booking) => {
+            const bookingId =
+              booking.id ||
+              booking._id
 
-            const locker = getLocker(
-              booking.lockerId
-            )
+            const locker =
+              getLocker(booking)
+
+            const lockerId =
+              getLockerId(booking)
+
+            const lockerCode =
+              locker?.code ||
+              '—'
 
             const isCancelled =
               booking.status === 'released' ||
               booking.status === 'cancelled'
 
+            const startTime =
+              booking.startTime ||
+              booking.start
+
+            const endTime =
+              booking.endTime ||
+              booking.end
+
             return (
               <div
                 className="booking-row"
-                key={booking.id}
+                key={bookingId}
               >
 
                 {/* LEFT */}
+
                 <div className="booking-main">
 
                   <div className="booking-code">
-                    {locker?.code ||
-                      booking.lockerId}
+                    {lockerCode}
                   </div>
 
                   <div className="booking-info">
 
                     <div className="booking-name">
-                      Locker{' '}
-                      {locker?.code ||
-                        booking.lockerId}
+                      Locker {lockerCode}
                     </div>
 
                     <div className="booking-meta">
                       Station:{' '}
-                      {booking.station || '—'}
+                      {booking.station?.name ||
+                        (
+                          typeof booking.station ===
+                            'string'
+                            ? booking.station
+                            : null
+                        ) ||
+                        locker?.stationId?.name ||
+                        '—'}
                     </div>
 
                     <div className="booking-meta">
                       Zone:{' '}
-                      {booking.zone || '—'}
+                      {booking.zone ||
+                        locker?.zone ||
+                        '—'}
                     </div>
 
                     <div className="booking-meta">
                       Size:{' '}
-                      {booking.size || '—'}
+                      {booking.size ||
+                        locker?.size ||
+                        '—'}
                     </div>
 
                     <div className="booking-meta">
                       Date:{' '}
                       {formatDate(
-                        booking.bookingDate
+                        booking.bookingDate ||
+                        startTime
                       )}
                     </div>
 
                     <div className="booking-meta">
                       Start:{' '}
-                      {formatTime(
-                        booking.startTime
-                      )}
+                      {formatTime(startTime)}
                     </div>
 
                     <div className="booking-meta">
                       End:{' '}
-                      {formatTime(
-                        booking.endTime
-                      )}
+                      {formatTime(endTime)}
                     </div>
 
                     <div className="booking-meta">
                       Price:{' '}
                       <strong>
-                        ₹{booking.price}
+                        ₹{booking.price || 0}
                       </strong>
                     </div>
 
                     <div className="booking-meta">
                       Booking ID:{' '}
                       <strong>
-                        {booking.id}
+                        {bookingId}
                       </strong>
                     </div>
 
@@ -199,14 +371,14 @@ export default function MyBookings() {
                 </div>
 
                 {/* RIGHT */}
+
                 <div className="booking-actions">
 
                   <span
                     className={
-                      `badge ${
-                        isCancelled
-                          ? 'badge-released'
-                          : 'badge-active'
+                      `badge ${isCancelled
+                        ? 'badge-released'
+                        : 'badge-active'
                       }`
                     }
                   >
@@ -230,9 +402,7 @@ export default function MyBookings() {
                     <button
                       className="btn btn-danger"
                       onClick={() =>
-                        handleCancel(
-                          booking
-                        )
+                        handleCancel(booking)
                       }
                     >
                       Cancel booking
@@ -249,6 +419,7 @@ export default function MyBookings() {
       )}
 
       {/* DETAILS MODAL */}
+
       {selectedBooking && (
         <div
           className="modal-overlay"
@@ -256,6 +427,7 @@ export default function MyBookings() {
             setSelectedBooking(null)
           }
         >
+
           <div
             className="modal"
             onClick={(e) =>
@@ -268,103 +440,137 @@ export default function MyBookings() {
             <p className="modal-sub">
               Booking ID:{' '}
               <strong>
-                {selectedBooking.id}
+                {selectedBooking.id ||
+                  selectedBooking._id}
               </strong>
             </p>
 
-            <div className="profile-details">
+            {(() => {
+              const locker =
+                getLocker(selectedBooking)
 
-              <div className="profile-detail">
-                <span className="profile-detail-label">
-                  Locker
-                </span>
-                <strong>
-                  {getLocker(
-                    selectedBooking.lockerId
-                  )?.code ||
-                    selectedBooking.lockerId}
-                </strong>
-              </div>
+              const lockerCode =
+                locker?.code || '—'
 
-              <div className="profile-detail">
-                <span className="profile-detail-label">
-                  Station
-                </span>
-                <strong>
-                  {selectedBooking.station}
-                </strong>
-              </div>
+              const startTime =
+                selectedBooking.startTime ||
+                selectedBooking.start
 
-              <div className="profile-detail">
-                <span className="profile-detail-label">
-                  Zone
-                </span>
-                <strong>
-                  {selectedBooking.zone}
-                </strong>
-              </div>
+              const endTime =
+                selectedBooking.endTime ||
+                selectedBooking.end
 
-              <div className="profile-detail">
-                <span className="profile-detail-label">
-                  Size
-                </span>
-                <strong>
-                  {selectedBooking.size}
-                </strong>
-              </div>
+              return (
+                <div className="profile-details">
 
-              <div className="profile-detail">
-                <span className="profile-detail-label">
-                  Date
-                </span>
-                <strong>
-                  {formatDate(
-                    selectedBooking.bookingDate
-                  )}
-                </strong>
-              </div>
+                  <div className="profile-detail">
+                    <span className="profile-detail-label">
+                      Locker
+                    </span>
 
-              <div className="profile-detail">
-                <span className="profile-detail-label">
-                  Start Time
-                </span>
-                <strong>
-                  {formatTime(
-                    selectedBooking.startTime
-                  )}
-                </strong>
-              </div>
+                    <strong>
+                      {lockerCode}
+                    </strong>
+                  </div>
 
-              <div className="profile-detail">
-                <span className="profile-detail-label">
-                  End Time
-                </span>
-                <strong>
-                  {formatTime(
-                    selectedBooking.endTime
-                  )}
-                </strong>
-              </div>
+                  <div className="profile-detail">
+                    <span className="profile-detail-label">
+                      Station
+                    </span>
 
-              <div className="profile-detail">
-                <span className="profile-detail-label">
-                  Price
-                </span>
-                <strong>
-                  ₹{selectedBooking.price}
-                </strong>
-              </div>
+                    <strong>
+                      {selectedBooking.station?.name ||
+                        (
+                          typeof selectedBooking.station ===
+                            'string'
+                            ? selectedBooking.station
+                            : null
+                        ) ||
+                        '—'}
+                    </strong>
+                  </div>
 
-              <div className="profile-detail">
-                <span className="profile-detail-label">
-                  Status
-                </span>
-                <strong>
-                  {selectedBooking.status}
-                </strong>
-              </div>
+                  <div className="profile-detail">
+                    <span className="profile-detail-label">
+                      Zone
+                    </span>
 
-            </div>
+                    <strong>
+                      {selectedBooking.zone ||
+                        locker?.zone ||
+                        '—'}
+                    </strong>
+                  </div>
+
+                  <div className="profile-detail">
+                    <span className="profile-detail-label">
+                      Size
+                    </span>
+
+                    <strong>
+                      {selectedBooking.size ||
+                        locker?.size ||
+                        '—'}
+                    </strong>
+                  </div>
+
+                  <div className="profile-detail">
+                    <span className="profile-detail-label">
+                      Date
+                    </span>
+
+                    <strong>
+                      {formatDate(
+                        selectedBooking.bookingDate ||
+                        startTime
+                      )}
+                    </strong>
+                  </div>
+
+                  <div className="profile-detail">
+                    <span className="profile-detail-label">
+                      Start Time
+                    </span>
+
+                    <strong>
+                      {formatTime(startTime)}
+                    </strong>
+                  </div>
+
+                  <div className="profile-detail">
+                    <span className="profile-detail-label">
+                      End Time
+                    </span>
+
+                    <strong>
+                      {formatTime(endTime)}
+                    </strong>
+                  </div>
+
+                  <div className="profile-detail">
+                    <span className="profile-detail-label">
+                      Price
+                    </span>
+
+                    <strong>
+                      ₹{selectedBooking.price || 0}
+                    </strong>
+                  </div>
+
+                  <div className="profile-detail">
+                    <span className="profile-detail-label">
+                      Status
+                    </span>
+
+                    <strong>
+                      {selectedBooking.status ||
+                        'unknown'}
+                    </strong>
+                  </div>
+
+                </div>
+              )
+            })()}
 
             <div className="modal-actions">
 
@@ -379,26 +585,26 @@ export default function MyBookings() {
 
               {!(
                 selectedBooking.status ===
-                  'released' ||
+                'released' ||
                 selectedBooking.status ===
-                  'cancelled'
+                'cancelled'
               ) && (
-                <button
-                  className="btn btn-danger"
-                  onClick={() => {
-                    handleCancel(
-                      selectedBooking
-                    )
-                    setSelectedBooking(null)
-                  }}
-                >
-                  Cancel booking
-                </button>
-              )}
+                  <button
+                    className="btn btn-danger"
+                    onClick={() =>
+                      handleCancel(
+                        selectedBooking
+                      )
+                    }
+                  >
+                    Cancel booking
+                  </button>
+                )}
 
             </div>
 
           </div>
+
         </div>
       )}
 

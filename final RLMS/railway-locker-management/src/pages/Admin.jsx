@@ -24,17 +24,37 @@ export default function Admin() {
     size: SIZES[0] || '',
   })
 
-  /* ---------------- AUTH PROTECTION ---------------- */
+  // --------------------------------------------------
+  // NORMALIZE DATA
+  // --------------------------------------------------
 
-  if (!currentUser) {
-    return <Navigate to="/login" replace />
-  }
+  // Backend/API responses can sometimes be:
+  // []
+  // { data: [] }
+  // { data: { bookings: [] } }
+  //
+  // Always convert them into arrays before using
+  // .filter(), .map(), .length, etc.
 
-  if (currentUser.role !== 'admin') {
-    return <Navigate to="/" replace />
-  }
+  const bookingList = Array.isArray(bookings)
+    ? bookings
+    : Array.isArray(bookings?.data)
+      ? bookings.data
+      : Array.isArray(bookings?.data?.bookings)
+        ? bookings.data.bookings
+        : []
 
-  /* ---------------- LOAD USERS ---------------- */
+  const lockerList = Array.isArray(lockers)
+    ? lockers
+    : Array.isArray(lockers?.data)
+      ? lockers.data
+      : []
+
+  const userList = Array.isArray(users) ? users : []
+
+  // --------------------------------------------------
+  // LOAD USERS
+  // --------------------------------------------------
 
   useEffect(() => {
     try {
@@ -44,13 +64,27 @@ export default function Admin() {
         ) || '[]'
       )
 
-      setUsers(storedUsers)
+      setUsers(Array.isArray(storedUsers) ? storedUsers : [])
     } catch {
       setUsers([])
     }
   }, [])
 
-  /* ---------------- ADD LOCKER ---------------- */
+  // --------------------------------------------------
+  // AUTH PROTECTION
+  // --------------------------------------------------
+
+  if (!currentUser) {
+    return <Navigate to="/login" replace />
+  }
+
+  if (currentUser.role !== 'admin') {
+    return <Navigate to="/" replace />
+  }
+
+  // --------------------------------------------------
+  // ADD LOCKER
+  // --------------------------------------------------
 
   function handleAddLocker(e) {
     e.preventDefault()
@@ -62,9 +96,9 @@ export default function Admin() {
       return
     }
 
-    const alreadyExists = lockers.some(
+    const alreadyExists = lockerList.some(
       (locker) =>
-        String(locker.code || locker.id)
+        String(locker.code || locker.id || locker._id)
           .toLowerCase() === code.toLowerCase()
     )
 
@@ -114,15 +148,27 @@ export default function Admin() {
     alert('Locker added successfully.')
   }
 
-  /* ---------------- REMOVE LOCKER ---------------- */
+  // --------------------------------------------------
+  // REMOVE LOCKER
+  // --------------------------------------------------
 
   function handleRemoveLocker(locker) {
-    const activeBooking = bookings.some(
-      (booking) =>
-        String(booking.lockerId) ===
-          String(locker.id) &&
-        booking.status !== 'cancelled' &&
-        booking.status !== 'released'
+    const lockerId = locker.id || locker._id
+
+    const activeBooking = bookingList.some(
+      (booking) => {
+        const bookingLockerId =
+          booking.lockerId ||
+          booking.locker?._id ||
+          booking.locker?.id
+
+        return (
+          String(bookingLockerId) ===
+          String(lockerId) &&
+          booking.status !== 'cancelled' &&
+          booking.status !== 'released'
+        )
+      }
     )
 
     if (activeBooking) {
@@ -133,65 +179,68 @@ export default function Admin() {
     }
 
     const confirmRemove = window.confirm(
-      `Are you sure you want to remove locker ${
-        locker.code || locker.id
+      `Are you sure you want to remove locker ${locker.code || locker.id || locker._id
       }?`
     )
 
     if (!confirmRemove) return
 
     try {
-      removeLocker(locker.id)
+      removeLocker(lockerId)
       alert('Locker removed successfully.')
     } catch (error) {
       alert(
         error?.message ||
-          'Unable to remove locker.'
+        'Unable to remove locker.'
       )
     }
   }
 
-  /* ---------------- LOCKER STATUS ---------------- */
+  // --------------------------------------------------
+  // LOCKER STATUS
+  // --------------------------------------------------
 
   function handleToggleOutOfService(locker) {
     try {
-      toggleOutOfService(locker.id)
+      toggleOutOfService(locker.id || locker._id)
     } catch (error) {
       alert(
         error?.message ||
-          'Unable to update locker status.'
+        'Unable to update locker status.'
       )
     }
   }
 
-  /* ---------------- STATISTICS ---------------- */
+  // --------------------------------------------------
+  // STATISTICS
+  // --------------------------------------------------
 
-  const totalLockers = lockers.length
+  const totalLockers = lockerList.length
 
-  const availableLockers = lockers.filter(
+  const availableLockers = lockerList.filter(
     (locker) => locker.status === 'available'
   ).length
 
-  const reservedLockers = lockers.filter(
+  const reservedLockers = lockerList.filter(
     (locker) => locker.status === 'reserved'
   ).length
 
-  const occupiedLockers = lockers.filter(
+  const occupiedLockers = lockerList.filter(
     (locker) => locker.status === 'occupied'
   ).length
 
-  const outOfServiceLockers = lockers.filter(
+  const outOfServiceLockers = lockerList.filter(
     (locker) =>
       locker.status === 'out-of-service' ||
       locker.status === 'out_of_service' ||
       locker.outOfService === true
   ).length
 
-  const totalUsers = users.length
+  const totalUsers = userList.length
 
-  const totalBookings = bookings.length
+  const totalBookings = bookingList.length
 
-  const revenue = bookings
+  const revenue = bookingList
     .filter(
       (booking) =>
         booking.status !== 'cancelled' &&
@@ -203,7 +252,9 @@ export default function Admin() {
       0
     )
 
-  /* ---------------- UI ---------------- */
+  // --------------------------------------------------
+  // UI
+  // --------------------------------------------------
 
   return (
     <div className="admin-page">
@@ -289,7 +340,7 @@ export default function Admin() {
           </div>
 
           <span>
-            {users.length} users
+            {userList.length} users
           </span>
         </div>
 
@@ -309,7 +360,7 @@ export default function Admin() {
 
             <tbody>
 
-              {users.length === 0 ? (
+              {userList.length === 0 ? (
                 <tr>
                   <td
                     colSpan="5"
@@ -319,8 +370,14 @@ export default function Admin() {
                   </td>
                 </tr>
               ) : (
-                users.map((user) => (
-                  <tr key={user.id}>
+                userList.map((user) => (
+                  <tr
+                    key={
+                      user.id ||
+                      user._id ||
+                      user.email
+                    }
+                  >
 
                     <td>
                       {user.name || '—'}
@@ -349,10 +406,10 @@ export default function Admin() {
                     <td>
                       {user.createdAt
                         ? new Date(
-                            user.createdAt
-                          ).toLocaleDateString(
-                            'en-IN'
-                          )
+                          user.createdAt
+                        ).toLocaleDateString(
+                          'en-IN'
+                        )
                         : '—'}
                     </td>
 
@@ -382,7 +439,7 @@ export default function Admin() {
           </div>
 
           <span>
-            {bookings.length} bookings
+            {bookingList.length} bookings
           </span>
         </div>
 
@@ -405,7 +462,7 @@ export default function Admin() {
 
             <tbody>
 
-              {bookings.length === 0 ? (
+              {bookingList.length === 0 ? (
                 <tr>
                   <td
                     colSpan="8"
@@ -415,57 +472,92 @@ export default function Admin() {
                   </td>
                 </tr>
               ) : (
-                bookings.map((booking) => {
+                bookingList.map((booking) => {
 
-                  const user = users.find(
+                  const bookingUserId =
+                    booking.userId ||
+                    booking.user?._id ||
+                    booking.user?.id
+
+                  const bookingLockerId =
+                    booking.lockerId ||
+                    booking.locker?._id ||
+                    booking.locker?.id
+
+                  const user = userList.find(
                     (u) =>
-                      String(u.id) ===
-                      String(booking.userId)
+                      String(
+                        u.id || u._id
+                      ) ===
+                      String(bookingUserId)
                   )
 
-                  const locker = lockers.find(
+                  const locker = lockerList.find(
                     (l) =>
-                      String(l.id) ===
-                      String(booking.lockerId)
+                      String(
+                        l.id || l._id
+                      ) ===
+                      String(bookingLockerId)
                   )
+
+                  const stationName =
+                    booking.station?.name ||
+                    booking.station ||
+                    locker?.station ||
+                    '—'
+
+                  const zone =
+                    booking.zone ||
+                    booking.locker?.zone ||
+                    locker?.zone ||
+                    '—'
+
+                  const size =
+                    booking.size ||
+                    booking.locker?.size ||
+                    locker?.size ||
+                    '—'
 
                   return (
-                    <tr key={booking.id}>
+                    <tr
+                      key={
+                        booking.id ||
+                        booking._id
+                      }
+                    >
 
                       <td>
                         <strong>
-                          {booking.id}
+                          {booking.id ||
+                            booking._id ||
+                            '—'}
                         </strong>
                       </td>
 
                       <td>
-                        {user?.name ||
-                          booking.userId ||
+                        {booking.user?.name ||
+                          user?.name ||
+                          bookingUserId ||
                           '—'}
                       </td>
 
                       <td>
-                        {locker?.code ||
-                          booking.lockerId ||
+                        {booking.locker?.code ||
+                          locker?.code ||
+                          bookingLockerId ||
                           '—'}
                       </td>
 
                       <td>
-                        {booking.station ||
-                          locker?.station ||
-                          '—'}
+                        {stationName}
                       </td>
 
                       <td>
-                        {booking.zone ||
-                          locker?.zone ||
-                          '—'}
+                        {zone}
                       </td>
 
                       <td>
-                        {booking.size ||
-                          locker?.size ||
-                          '—'}
+                        {size}
                       </td>
 
                       <td>
@@ -503,114 +595,119 @@ export default function Admin() {
 
       {/* ADD LOCKER */}
 
-    <div className="admin-section">
-  <div className="admin-section-header">
-    <div>
-      <div className="eyebrow">LOCKER MANAGEMENT</div>
-      <h2>Add New Locker</h2>
-    </div>
-  </div>
+      <section className="admin-section">
 
-  <form
-    className="add-locker-form"
-    onSubmit={handleAddLocker}
-  >
-    <div className="field">
-      <label>Locker Number</label>
+        <div className="admin-section-header">
+          <div>
+            <div className="eyebrow">
+              LOCKER MANAGEMENT
+            </div>
 
-      <input
-        type="text"
-        value={newLocker.code}
-        onChange={(e) =>
-          setNewLocker({
-            ...newLocker,
-            code: e.target.value,
-          })
-        }
-        placeholder="e.g. 101"
-        required
-      />
-    </div>
+            <h2>Add New Locker</h2>
+          </div>
+        </div>
 
-    <div className="field">
-      <label>Railway Station</label>
+        <form
+          className="add-locker-form"
+          onSubmit={handleAddLocker}
+        >
 
-      <select
-        value={newLocker.stationId}
-        onChange={(e) =>
-          setNewLocker({
-            ...newLocker,
-            stationId: e.target.value,
-          })
-        }
-      >
-        {STATIONS.map((station) => (
-          <option
-            key={station.id}
-            value={station.id}
+          <div className="field">
+            <label>Locker Number</label>
+
+            <input
+              type="text"
+              value={newLocker.code}
+              onChange={(e) =>
+                setNewLocker({
+                  ...newLocker,
+                  code: e.target.value,
+                })
+              }
+              placeholder="e.g. 101"
+              required
+            />
+          </div>
+
+          <div className="field">
+            <label>Railway Station</label>
+
+            <select
+              value={newLocker.stationId}
+              onChange={(e) =>
+                setNewLocker({
+                  ...newLocker,
+                  stationId: e.target.value,
+                })
+              }
+            >
+              {STATIONS.map((station) => (
+                <option
+                  key={station.id}
+                  value={station.id}
+                >
+                  {station.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="field">
+            <label>Zone</label>
+
+            <select
+              value={newLocker.zone}
+              onChange={(e) =>
+                setNewLocker({
+                  ...newLocker,
+                  zone: e.target.value,
+                })
+              }
+            >
+              {ZONES.map((zone) => (
+                <option
+                  key={zone}
+                  value={zone}
+                >
+                  {zone}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="field">
+            <label>Size</label>
+
+            <select
+              value={newLocker.size}
+              onChange={(e) =>
+                setNewLocker({
+                  ...newLocker,
+                  size: e.target.value,
+                })
+              }
+            >
+              {SIZES.map((size) => (
+                <option
+                  key={size}
+                  value={size}
+                >
+                  {size}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <button
+            type="submit"
+            className="btn btn-primary add-locker-btn"
           >
-            {station.name}
-          </option>
-        ))}
-      </select>
-    </div>
+            + Add Locker
+          </button>
 
-    <div className="field">
-      <label>Zone</label>
+        </form>
 
-      <select
-        value={newLocker.zone}
-        onChange={(e) =>
-          setNewLocker({
-            ...newLocker,
-            zone: e.target.value,
-          })
-        }
-      >
-        {ZONES.map((zone) => (
-          <option
-            key={zone}
-            value={zone}
-          >
-            {zone}
-          </option>
-        ))}
-      </select>
-    </div>
-
-    <div className="field">
-      <label>Size</label>
-
-      <select
-        value={newLocker.size}
-        onChange={(e) =>
-          setNewLocker({
-            ...newLocker,
-            size: e.target.value,
-          })
-        }
-      >
-        {SIZES.map((size) => (
-          <option
-            key={size}
-            value={size}
-          >
-            {size}
-          </option>
-        ))}
-      </select>
-    </div>
-
-    <button
-      type="submit"
-      className="btn btn-primary add-locker-btn"
-    >
-      + Add Locker
-    </button>
-  </form>
-</div>
-       
-    
+      </section>
 
       {/* LOCKER STATUS */}
 
@@ -626,85 +723,90 @@ export default function Admin() {
           </div>
 
           <span>
-            {lockers.length} lockers
+            {lockerList.length} lockers
           </span>
         </div>
 
         <div className="admin-locker-grid">
 
-          {lockers.length === 0 ? (
+          {lockerList.length === 0 ? (
             <p className="empty-table">
               No lockers found.
             </p>
           ) : (
-            lockers.map((locker) => (
+            lockerList.map((locker) => {
 
-              <div
-                className="admin-locker-item"
-                key={locker.id}
-              >
+              const lockerId =
+                locker.id || locker._id
 
-                <div>
-                  <strong>
-                    {locker.code ||
-                      locker.id}
-                  </strong>
-
-                  <small>
-                    {locker.station ||
-                      'Railway Station'}
-                  </small>
-                </div>
-
-                <span
-                  className={`locker-status locker-status-${String(
-                    locker.status || 'available'
-                  )
-                    .toLowerCase()
-                    .replaceAll(
-                      ' ',
-                      '-'
-                    )}`}
+              return (
+                <div
+                  className="admin-locker-item"
+                  key={lockerId}
                 >
-                  {locker.status ||
-                    'available'}
-                </span>
 
-                <div className="locker-admin-actions">
+                  <div>
+                    <strong>
+                      {locker.code ||
+                        lockerId}
+                    </strong>
 
-                  <button
-                    type="button"
-                    className="btn btn-ghost"
-                    onClick={() =>
-                      handleToggleOutOfService(
-                        locker
-                      )
-                    }
+                    <small>
+                      {locker.station ||
+                        locker.stationId ||
+                        'Railway Station'}
+                    </small>
+                  </div>
+
+                  <span
+                    className={`locker-status locker-status-${String(
+                      locker.status || 'available'
+                    )
+                      .toLowerCase()
+                      .replaceAll(
+                        ' ',
+                        '-'
+                      )}`}
                   >
-                    {locker.outOfService ||
-                    locker.status ===
-                      'out-of-service'
-                      ? 'Set Available'
-                      : 'Out of Service'}
-                  </button>
+                    {locker.status ||
+                      'available'}
+                  </span>
 
-                  <button
-                    type="button"
-                    className="btn btn-danger"
-                    onClick={() =>
-                      handleRemoveLocker(
-                        locker
-                      )
-                    }
-                  >
-                    Remove
-                  </button>
+                  <div className="locker-admin-actions">
+
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      onClick={() =>
+                        handleToggleOutOfService(
+                          locker
+                        )
+                      }
+                    >
+                      {locker.outOfService ||
+                        locker.status ===
+                        'out-of-service'
+                        ? 'Set Available'
+                        : 'Out of Service'}
+                    </button>
+
+                    <button
+                      type="button"
+                      className="btn btn-danger"
+                      onClick={() =>
+                        handleRemoveLocker(
+                          locker
+                        )
+                      }
+                    >
+                      Remove
+                    </button>
+
+                  </div>
 
                 </div>
-
-              </div>
-
-            ))
+              )
+            })
           )}
 
         </div>

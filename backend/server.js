@@ -18,16 +18,54 @@ dotenv.config();
 
 const app = express();
 
-// Middleware
-app.use(express.json());
-app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:5173',
-}));
+// =====================================================
+// CORS CONFIGURATION
+// =====================================================
 
-// Connect to DB
+const allowedOrigins = [
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  'http://localhost:5174',
+  'http://127.0.0.1:5174',
+  'http://localhost:5175',
+  'http://127.0.0.1:5175',
+];
+
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      // Allow requests without an Origin header
+      // (PowerShell, Postman, server-to-server requests, etc.)
+      if (!origin) {
+        return callback(null, true);
+      }
+
+      // Allow our frontend development origins
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      return callback(new Error('Not allowed by CORS'));
+    },
+  })
+);
+
+// =====================================================
+// BODY PARSER
+// =====================================================
+
+app.use(express.json());
+
+// =====================================================
+// DATABASE CONNECTION
+// =====================================================
+
 connectDB();
 
-// Health Check Endpoint
+// =====================================================
+// HEALTH CHECK
+// =====================================================
+
 app.get('/api/health', (req, res) => {
   res.json({
     success: true,
@@ -35,16 +73,31 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Routes
+// =====================================================
+// API ROUTES
+// =====================================================
+
 app.use('/api/auth', authRoutes);
+
 app.use('/api/users', userRoutes);
+
 app.use('/api/stations', stationRoutes);
+
 app.use('/api/lockers', lockerRoutes);
+
 app.use('/api/bookings', bookingRoutes);
+
 app.use('/api/admin', adminRoutes);
 
-// Error Handling
+// =====================================================
+// ERROR HANDLING
+// =====================================================
+
 app.use(errorHandler);
+
+// =====================================================
+// START SERVER
+// =====================================================
 
 const PORT = process.env.PORT || 5000;
 
