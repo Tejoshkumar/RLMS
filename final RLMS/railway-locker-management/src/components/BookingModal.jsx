@@ -15,13 +15,22 @@ export default function BookingModal({
 
   const [scanning, setScanning] = useState(false)
   const [securityStatus, setSecurityStatus] = useState(null)
+  const [submitting, setSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState('')
 
   useEffect(() => {
     if (!locker) return
 
     setStep('details')
+    setHolderName('')
+    setPhone('')
+    setBookingDate('')
+    setStartTime('')
+    setDurationHours(1)
     setScanning(false)
     setSecurityStatus(null)
+    setSubmitting(false)
+    setSubmitError('')
   }, [locker])
 
   if (!locker) return null
@@ -38,24 +47,33 @@ export default function BookingModal({
     }, 2000)
   }
 
-  function handleSubmit() {
+  async function handleSubmit() {
     if (!holderName || !phone || !bookingDate || !startTime) {
-      alert('Please fill all required fields.')
+      setSubmitError('Please fill all required fields.')
       return
     }
 
     if (securityStatus !== 'cleared') {
-      alert('Please complete the security check first.')
+      setSubmitError('Please complete the security check first.')
       return
     }
 
-    onConfirm({
-      holderName,
-      phone,
-      bookingDate,
-      startTime,
-      durationHours: Number(durationHours),
-    })
+    setSubmitting(true)
+    setSubmitError('')
+
+    try {
+      await onConfirm({
+        holderName,
+        phone,
+        bookingDate,
+        startTime,
+        durationHours: Number(durationHours),
+      })
+    } catch (error) {
+      setSubmitError(error.message || 'Booking failed. Please try again.')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   function handleClose() {
@@ -355,11 +373,18 @@ export default function BookingModal({
                 <button
                   className="btn btn-primary"
                   onClick={handleSubmit}
+                  disabled={submitting}
                 >
-                  Confirm Booking
+                  {submitting ? 'Booking...' : 'Confirm Booking'}
                 </button>
               )}
             </div>
+
+            {submitError && (
+              <div className="profile-message profile-error" role="alert">
+                {submitError}
+              </div>
+            )}
           </div>
         )}
       </div>

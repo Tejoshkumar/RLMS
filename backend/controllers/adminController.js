@@ -43,7 +43,7 @@ export const getBookings = async (req, res, next) => {
  */
 export const getStats = async (req, res, next) => {
   try {
-    const [totalUsers, totalStations, totalLockers, availableLockers, outOfServiceLockers, totalBookings, activeBookings, cancelledBookings] = await Promise.all([
+    const [totalUsers, totalStations, totalLockers, availableLockers, outOfServiceLockers, totalBookings, activeBookings, cancelledBookings, completedBookings] = await Promise.all([
       User.countDocuments(),
       Station.countDocuments(),
       Locker.countDocuments(),
@@ -52,11 +52,12 @@ export const getStats = async (req, res, next) => {
       Booking.countDocuments(),
       Booking.countDocuments({ status: 'active' }),
       Booking.countDocuments({ status: 'cancelled' }),
+      Booking.countDocuments({ status: 'completed' }),
     ]);
 
-    // Revenue from active bookings only (price field stored on each booking)
+    // Completed bookings remain part of the system's earned revenue.
     const revenueAgg = await Booking.aggregate([
-      { $match: { status: 'active' } },
+      { $match: { status: { $in: ['active', 'completed'] } } },
       { $group: { _id: null, totalRevenue: { $sum: '$price' } } },
     ]);
     const totalRevenue = revenueAgg.length ? revenueAgg[0].totalRevenue : 0;
@@ -73,6 +74,7 @@ export const getStats = async (req, res, next) => {
         totalBookings,
         activeBookings,
         cancelledBookings,
+        completedBookings,
         totalRevenue,
       },
     });
@@ -80,4 +82,3 @@ export const getStats = async (req, res, next) => {
     next(err);
   }
 };
-

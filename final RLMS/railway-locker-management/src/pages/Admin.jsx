@@ -3,19 +3,30 @@ import { Navigate } from 'react-router-dom'
 import { useAuth } from '../store/AuthStore.jsx'
 import { useLockers } from '../store/LockerStore.jsx'
 import { STATIONS, ZONES, SIZES } from '../data/mockData.js'
+import { getAdminBookings, getAdminUsers } from '../api/adminApi.js'
+
+function getReferenceId(value) {
+  if (value && typeof value === 'object') {
+    return value._id || value.id || ''
+  }
+
+  return value || ''
+}
 
 export default function Admin() {
   const { currentUser } = useAuth()
 
   const {
     lockers,
-    bookings,
     addLocker,
     removeLocker,
     toggleOutOfService,
   } = useLockers()
 
   const [users, setUsers] = useState([])
+  const [bookings, setBookings] = useState([])
+  const [loadingAdminData, setLoadingAdminData] = useState(true)
+  const [adminDataError, setAdminDataError] = useState('')
 
   const [newLocker, setNewLocker] = useState({
     code: '',
@@ -28,21 +39,7 @@ export default function Admin() {
   // NORMALIZE DATA
   // --------------------------------------------------
 
-  // Backend/API responses can sometimes be:
-  // []
-  // { data: [] }
-  // { data: { bookings: [] } }
-  //
-  // Always convert them into arrays before using
-  // .filter(), .map(), .length, etc.
-
-  const bookingList = Array.isArray(bookings)
-    ? bookings
-    : Array.isArray(bookings?.data)
-      ? bookings.data
-      : Array.isArray(bookings?.data?.bookings)
-        ? bookings.data.bookings
-        : []
+  const bookingList = Array.isArray(bookings) ? bookings : []
 
   const lockerList = Array.isArray(lockers)
     ? lockers
@@ -53,22 +50,42 @@ export default function Admin() {
   const userList = Array.isArray(users) ? users : []
 
   // --------------------------------------------------
-  // LOAD USERS
+  // LOAD ADMIN DATA
   // --------------------------------------------------
 
   useEffect(() => {
-    try {
-      const storedUsers = JSON.parse(
-        localStorage.getItem(
-          'railway-locker-management:users'
-        ) || '[]'
-      )
+    if (currentUser?.role !== 'admin') return
 
-      setUsers(Array.isArray(storedUsers) ? storedUsers : [])
-    } catch {
-      setUsers([])
+    let mounted = true
+
+    async function loadAdminData() {
+      setLoadingAdminData(true)
+      setAdminDataError('')
+
+      try {
+        const [adminUsers, adminBookings] = await Promise.all([
+          getAdminUsers(),
+          getAdminBookings(),
+        ])
+
+        if (!mounted) return
+        setUsers(Array.isArray(adminUsers) ? adminUsers : [])
+        setBookings(Array.isArray(adminBookings) ? adminBookings : [])
+      } catch (error) {
+        if (mounted) {
+          setAdminDataError(error.message || 'Could not load admin data.')
+        }
+      } finally {
+        if (mounted) setLoadingAdminData(false)
+      }
     }
-  }, [])
+
+    loadAdminData()
+
+    return () => {
+      mounted = false
+    }
+  }, [currentUser?.role])
 
   // --------------------------------------------------
   // AUTH PROTECTION
@@ -165,8 +182,7 @@ export default function Admin() {
         return (
           String(bookingLockerId) ===
           String(lockerId) &&
-          booking.status !== 'cancelled' &&
-          booking.status !== 'released'
+          booking.status === 'active'
         )
       }
     )
@@ -243,8 +259,8 @@ export default function Admin() {
   const revenue = bookingList
     .filter(
       (booking) =>
-        booking.status !== 'cancelled' &&
-        booking.status !== 'released'
+        booking.status === 'active' ||
+        booking.status === 'completed'
     )
     .reduce(
       (total, booking) =>
@@ -340,7 +356,7 @@ export default function Admin() {
           </div>
 
           <span>
-            {userList.length} users
+            {loadingAdminData ? 'Loading users…' : `${userList.length} users`}
           </span>
         </div>
 
@@ -360,7 +376,13 @@ export default function Admin() {
 
             <tbody>
 
-              {userList.length === 0 ? (
+              {loadingAdminData ? (
+                <tr>
+                  <td colSpan="5" className="empty-table">
+                    Loading users…
+                  </td>
+                </tr>
+              ) : userList.length === 0 && !adminDataError ? (
                 <tr>
                   <td
                     colSpan="5"
@@ -369,7 +391,7 @@ export default function Admin() {
                     No users found.
                   </td>
                 </tr>
-              ) : (
+              ) : userList.length > 0 ? (
                 userList.map((user) => (
                   <tr
                     key={
@@ -415,6 +437,12 @@ export default function Admin() {
 
                   </tr>
                 ))
+              ) : (
+                <tr>
+                  <td colSpan="5" className="empty-table">
+                    {adminDataError}
+                  </td>
+                </tr>
               )}
 
             </tbody>
@@ -439,7 +467,7 @@ export default function Admin() {
           </div>
 
           <span>
-            {bookingList.length} bookings
+            {loadingAdminData ? 'Loading bookings…' : `${bookingList.length} bookings`}
           </span>
         </div>
 
@@ -462,7 +490,13 @@ export default function Admin() {
 
             <tbody>
 
-              {bookingList.length === 0 ? (
+              {loadingAdminData ? (
+                <tr>
+                  <td colSpan="8" className="empty-table">
+                    Loading bookings…
+                  </td>
+                </tr>
+              ) : bookingList.length === 0 && !adminDataError ? (
                 <tr>
                   <td
                     colSpan="8"
@@ -471,39 +505,46 @@ export default function Admin() {
                     No bookings found.
                   </td>
                 </tr>
-              ) : (
+              ) : bookingList.length > 0 ? (
                 bookingList.map((booking) => {
 
-                  const bookingUserId =
-                    booking.userId ||
-                    booking.user?._id ||
-                    booking.user?.id
+                  const populatedUser =
+                    booking.userId && typeof booking.userId === 'object'
+                      ? booking.userId
+                      : booking.user && typeof booking.user === 'object'
+                        ? booking.user
+                        : null
 
-                  const bookingLockerId =
-                    booking.lockerId ||
-                    booking.locker?._id ||
-                    booking.locker?.id
+                  const populatedLocker =
+                    booking.lockerId && typeof booking.lockerId === 'object'
+                      ? booking.lockerId
+                      : booking.locker && typeof booking.locker === 'object'
+                        ? booking.locker
+                        : null
+
+                  const bookingUserId = getReferenceId(
+                    booking.userId || booking.user
+                  )
+
+                  const bookingLockerId = getReferenceId(
+                    booking.lockerId || booking.locker
+                  )
 
                   const user = userList.find(
                     (u) =>
-                      String(
-                        u.id || u._id
-                      ) ===
-                      String(bookingUserId)
+                      String(getReferenceId(u.id || u._id)) === String(bookingUserId)
                   )
 
-                  const locker = lockerList.find(
+                  const locker = populatedLocker || lockerList.find(
                     (l) =>
-                      String(
-                        l.id || l._id
-                      ) ===
-                      String(bookingLockerId)
+                      String(getReferenceId(l.id || l._id)) === String(bookingLockerId)
                   )
 
                   const stationName =
                     booking.station?.name ||
-                    booking.station ||
+                    (typeof booking.station === 'string' ? booking.station : '') ||
                     locker?.station ||
+                    locker?.stationId?.name ||
                     '—'
 
                   const zone =
@@ -535,16 +576,18 @@ export default function Admin() {
                       </td>
 
                       <td>
-                        {booking.user?.name ||
+                        {populatedUser?.name ||
+                          booking.user?.name ||
                           user?.name ||
-                          bookingUserId ||
+                          (typeof bookingUserId === 'string' ? bookingUserId : '') ||
                           '—'}
                       </td>
 
                       <td>
-                        {booking.locker?.code ||
+                        {populatedLocker?.code ||
+                          booking.locker?.code ||
                           locker?.code ||
-                          bookingLockerId ||
+                          (typeof bookingLockerId === 'string' ? bookingLockerId : '') ||
                           '—'}
                       </td>
 
@@ -583,6 +626,12 @@ export default function Admin() {
                     </tr>
                   )
                 })
+              ) : (
+                <tr>
+                  <td colSpan="8" className="empty-table">
+                    {adminDataError}
+                  </td>
+                </tr>
               )}
 
             </tbody>

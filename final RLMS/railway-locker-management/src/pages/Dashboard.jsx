@@ -1,6 +1,5 @@
 import { useMemo, useState, useEffect } from 'react'
 import { useLockers } from '../store/LockerStore.jsx'
-import { ZONES, SIZES } from '../data/mockData.js'
 import { getStations } from '../api/stationApi.js'
 import LockerGrid from '../components/LockerGrid.jsx'
 import BookingModal from '../components/BookingModal.jsx'
@@ -103,10 +102,10 @@ export default function Dashboard({ currentUser }) {
 
   const stationLockers = lockerList.filter(
     (locker) => {
+      const stationReference =
+        locker.stationId || locker.station?._id || locker.station?.id
       const lockerStationId =
-        locker.stationId ||
-        locker.station?._id ||
-        locker.station?.id
+        stationReference?._id || stationReference
 
       return (
         String(lockerStationId) ===
@@ -115,11 +114,7 @@ export default function Dashboard({ currentUser }) {
     }
   )
 
-  // ==================================================
-  // APPLY ZONE + SIZE FILTERS
-  // ==================================================
-
-  const filtered = stationLockers.filter(
+  const zoneLockers = stationLockers.filter(
     (locker) => {
       if (
         zoneFilter !== 'All zones' &&
@@ -128,15 +123,27 @@ export default function Dashboard({ currentUser }) {
         return false
       }
 
-      if (
-        sizeFilter !== 'All sizes' &&
-        locker.size !== sizeFilter
-      ) {
-        return false
-      }
-
       return true
     }
+  )
+
+  const availableZones = [...new Set(
+    stationLockers
+      .map((locker) => locker.zone)
+      .filter(Boolean)
+  )].sort((a, b) => a.localeCompare(b))
+
+  const availableSizes = [...new Set(
+    zoneLockers
+      .map((locker) => locker.size)
+      .filter(Boolean)
+  )].sort((a, b) => a.localeCompare(b))
+
+  // Match using actual API values (for example, "small"), not display labels.
+  const filtered = zoneLockers.filter(
+    (locker) =>
+      sizeFilter === 'All sizes' ||
+      locker.size === sizeFilter
   )
 
   // ==================================================
@@ -250,6 +257,7 @@ export default function Dashboard({ currentUser }) {
           'Booking failed. Please try again.'
         )
       }
+      throw error
     }
   }
 
@@ -267,84 +275,75 @@ export default function Dashboard({ currentUser }) {
       <div className="filters">
 
         {/* Railway Station */}
+        <label className="filter-control" htmlFor="station-filter">
+          <span>Station</span>
+          <select
+            id="station-filter"
+            value={selectedStation}
+            onChange={(e) => {
+              setSelectedStation(e.target.value)
+              setZoneFilter('All zones')
+              setSizeFilter('All sizes')
+              setBookingError(null)
+            }}
+          >
+            {stations.length === 0 && (
+              <option value="">No stations available</option>
+            )}
+            {stations.map((station) => {
+              const stationId = station.id || station._id
 
-        <select
-          value={selectedStation}
-          onChange={(e) => {
-            setSelectedStation(
-              e.target.value
-            )
-
-            setZoneFilter('All zones')
-            setSizeFilter('All sizes')
-            setBookingError(null)
-          }}
-        >
-          {stations.map((station) => {
-            const stationId =
-              station.id ||
-              station._id
-
-            return (
-              <option
-                key={stationId}
-                value={stationId}
-              >
-                {station.name}
-              </option>
-            )
-          })}
-        </select>
+              return (
+                <option key={stationId} value={stationId}>
+                  {station.name}
+                </option>
+              )
+            })}
+          </select>
+        </label>
 
         {/* Zone */}
-
-        <select
-          value={zoneFilter}
-          onChange={(e) =>
-            setZoneFilter(
-              e.target.value
-            )
-          }
-        >
-          <option value="All zones">
-            All zones
-          </option>
-
-          {ZONES.map((zone) => (
-            <option
-              key={`zone-${zone}`}
-              value={zone}
-            >
-              {zone}
-            </option>
-          ))}
-        </select>
+        <label className="filter-control" htmlFor="zone-filter">
+          <span>Zone</span>
+          <select
+            id="zone-filter"
+            value={zoneFilter}
+            onChange={(e) => {
+              setZoneFilter(e.target.value)
+              setSizeFilter('All sizes')
+            }}
+          >
+            <option value="All zones">All zones</option>
+            {availableZones.map((zone) => (
+              <option key={`zone-${zone}`} value={zone}>
+                {zone}
+              </option>
+            ))}
+          </select>
+        </label>
 
         {/* Size */}
-
-        <select
-          value={sizeFilter}
-          onChange={(e) =>
-            setSizeFilter(
-              e.target.value
-            )
-          }
-        >
-          <option value="All sizes">
-            All sizes
-          </option>
-
-          {SIZES.map((size) => (
-            <option
-              key={`size-${size}`}
-              value={size}
-            >
-              {size}
-            </option>
-          ))}
-        </select>
+        <label className="filter-control" htmlFor="size-filter">
+          <span>Locker size</span>
+          <select
+            id="size-filter"
+            value={sizeFilter}
+            onChange={(e) => setSizeFilter(e.target.value)}
+          >
+            <option value="All sizes">All sizes</option>
+            {availableSizes.map((size) => (
+              <option key={`size-${size}`} value={size}>
+                {size.charAt(0).toUpperCase() + size.slice(1)}
+              </option>
+            ))}
+          </select>
+        </label>
 
       </div>
+
+      <p className="filter-results" aria-live="polite">
+        Showing {filtered.length} {filtered.length === 1 ? 'locker' : 'lockers'}
+      </p>
 
       {/* ============================================
           BOOKING CONFIRMATION

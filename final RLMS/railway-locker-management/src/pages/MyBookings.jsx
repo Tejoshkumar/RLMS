@@ -279,6 +279,7 @@ export default function MyBookings() {
             const isCancelled =
               booking.status === 'released' ||
               booking.status === 'cancelled'
+            const isCompleted = booking.status === 'completed'
 
             const startTime =
               booking.startTime ||
@@ -378,13 +379,17 @@ export default function MyBookings() {
                     className={
                       `badge ${isCancelled
                         ? 'badge-released'
-                        : 'badge-active'
+                        : isCompleted
+                          ? 'badge-completed'
+                          : 'badge-active'
                       }`
                     }
                   >
                     {isCancelled
                       ? 'Cancelled'
-                      : 'Active'}
+                      : isCompleted
+                        ? 'Completed'
+                        : 'Active'}
                   </span>
 
                   <button
@@ -398,7 +403,7 @@ export default function MyBookings() {
                     View details
                   </button>
 
-                  {!isCancelled && (
+                  {booking.status === 'active' && (
                     <button
                       className="btn btn-danger"
                       onClick={() =>

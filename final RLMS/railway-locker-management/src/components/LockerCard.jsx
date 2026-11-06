@@ -3,12 +3,14 @@ export default function LockerCard({
   bookings = [],
   onBook,
 }) {
-  const activeBooking = bookings.find(
-    (booking) =>
-      booking.lockerId === locker.id &&
-      booking.status !== 'cancelled' &&
-      booking.status !== 'released'
-  )
+  const activeBooking = bookings.find((booking) => {
+    const bookingLockerId = typeof booking.lockerId === 'object'
+      ? booking.lockerId?._id || booking.lockerId?.id
+      : booking.lockerId
+
+    return String(bookingLockerId) === String(locker.id || locker._id) &&
+      booking.status === 'active'
+  })
 
   const isOutOfService = locker.outOfService
 

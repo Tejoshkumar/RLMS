@@ -1,5 +1,6 @@
 ﻿import { createContext, useContext, useEffect, useState, useCallback } from 'react'
 import { apiRegister, apiLogin, apiGetMe } from '../api/authApi.js'
+import { updateUserPassword, updateUserProfile } from '../api/userApi.js'
 
 // ---------------------------------------------------------------------------
 // Storage key for the JWT — we never store plaintext passwords.
@@ -73,6 +74,23 @@ export function AuthProvider({ children }) {
   // -------------------------------------------------------------------------
   const getToken = useCallback(() => localStorage.getItem(TOKEN_KEY), [])
 
+  const updateProfile = useCallback(async (profile) => {
+    const updatedUser = await updateUserProfile(profile)
+    setCurrentUser((user) => ({ ...user, ...updatedUser }))
+    return updatedUser
+  }, [])
+
+  const changePassword = useCallback(async ({ currentPassword, newPassword }) => {
+    if (!currentPassword || !newPassword) {
+      throw new Error('Please provide both current and new passwords.')
+    }
+    if (newPassword.length < 6) {
+      throw new Error('New password must be at least 6 characters.')
+    }
+
+    return updateUserPassword({ currentPassword, newPassword })
+  }, [])
+
   const value = {
     currentUser,
     loading,
@@ -80,6 +98,8 @@ export function AuthProvider({ children }) {
     login,
     logout,
     getToken,
+    updateProfile,
+    changePassword,
   }
 
   // While we are validating a stored token, render nothing to avoid a flash

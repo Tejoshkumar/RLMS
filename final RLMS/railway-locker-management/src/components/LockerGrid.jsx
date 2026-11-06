@@ -5,6 +5,14 @@ export default function LockerGrid({
   bookings,
   onSelect,
 }) {
+  if (Object.keys(lockersByZone).length === 0) {
+    return (
+      <p className="empty-locker-results">
+        No lockers match the selected station, zone, and size.
+      </p>
+    )
+  }
+
   return (
     <div className="locker-grid-wrapper">
       {Object.entries(lockersByZone).map(
@@ -17,7 +25,7 @@ export default function LockerGrid({
             <div className="locker-grid">
               {zoneLockers.map((locker) => (
                 <LockerCard
-                  key={locker.id}
+                  key={locker.id || locker._id}
                   locker={locker}
                   bookings={bookings}
                   onBook={onSelect}

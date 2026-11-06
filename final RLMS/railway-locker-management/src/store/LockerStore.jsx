@@ -272,8 +272,7 @@ export function LockerProvider({ children }) {
 
         return (
           bookingLockerId === lockerId &&
-          booking.status !== 'cancelled' &&
-          booking.status !== 'released'
+          booking.status === 'active'
         )
       })
 

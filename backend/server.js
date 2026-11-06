@@ -2,6 +2,7 @@ import express from 'express';
 import dotenv from 'dotenv';
 import cors from 'cors';
 import connectDB from './config/db.js';
+import { startBookingExpiryJob } from './services/bookingExpiry.js';
 
 // Route imports
 import authRoutes from './routes/authRoutes.js';
@@ -60,7 +61,7 @@ app.use(express.json());
 // DATABASE CONNECTION
 // =====================================================
 
-connectDB();
+connectDB().then(startBookingExpiryJob);
 
 // =====================================================
 // HEALTH CHECK

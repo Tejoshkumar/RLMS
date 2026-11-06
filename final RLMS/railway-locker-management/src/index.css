@@ -231,6 +231,15 @@ a {
   margin-bottom: 22px;
 }
 
+.filter-control {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: var(--steel);
+  font-size: 12px;
+  font-weight: 600;
+}
+
 .filters select, .filters input[type="text"] {
   border: 1px solid var(--steel-line);
   background: var(--panel);
@@ -243,6 +252,20 @@ a {
 .filters select:focus, .filters input:focus {
   outline: 2px solid var(--amber);
   outline-offset: 1px;
+}
+
+.filter-results {
+  margin: -10px 0 16px;
+  color: var(--steel);
+  font-size: 13px;
+}
+
+.empty-locker-results {
+  padding: 18px;
+  border: 1px dashed var(--steel-line);
+  border-radius: 6px;
+  color: var(--steel);
+  text-align: center;
 }
 
 /* ---------- Zone groups & locker grid ---------- */
@@ -502,6 +525,7 @@ a {
 .badge-active { background: rgba(232, 163, 61, 0.16); color: var(--amber-deep); }
 .badge-reserved { background: rgba(62, 98, 89, 0.14); color: var(--teal); }
 .badge-released { background: rgba(138, 143, 152, 0.16); color: var(--steel); }
+.badge-completed { background: rgba(62, 98, 89, 0.14); color: var(--teal); }
 
 /* ---------- Empty state ---------- */
 
@@ -1078,6 +1102,11 @@ a {
   font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
+}
+
+.booking-status.status-completed {
+  background: rgba(62, 98, 89, 0.14);
+  color: var(--teal);
 }
 
 /* LOCKER STATUS */

@@ -8,6 +8,8 @@ export default function Profile() {
 
   const [editing, setEditing] = useState(false)
   const [changingPassword, setChangingPassword] = useState(false)
+  const [savingProfile, setSavingProfile] = useState(false)
+  const [savingPassword, setSavingPassword] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
 
@@ -42,26 +44,34 @@ export default function Profile() {
     })
   }
 
-  function handleSaveProfile(e) {
+  async function handleSaveProfile(e) {
     e.preventDefault()
     setError('')
     setSuccess('')
+    setSavingProfile(true)
 
     try {
-      updateProfile({
+      const updatedUser = await updateProfile({
         name: profileData.name,
         email: profileData.email,
         phone: profileData.phone,
       })
 
+      setProfileData({
+        name: updatedUser.name || '',
+        email: updatedUser.email || '',
+        phone: updatedUser.phone || '',
+      })
       setEditing(false)
       setSuccess('Profile updated successfully.')
     } catch (err) {
-      setError(err.message)
+      setError(err.message || 'Could not update your profile.')
+    } finally {
+      setSavingProfile(false)
     }
   }
 
-  function handleChangePassword(e) {
+  async function handleChangePassword(e) {
     e.preventDefault()
     setError('')
     setSuccess('')
@@ -80,8 +90,9 @@ export default function Profile() {
       return
     }
 
+    setSavingPassword(true)
     try {
-      changePassword({
+      await changePassword({
         currentPassword: passwordData.currentPassword,
         newPassword: passwordData.newPassword,
       })
@@ -95,7 +106,9 @@ export default function Profile() {
       setChangingPassword(false)
       setSuccess('Password changed successfully.')
     } catch (err) {
-      setError(err.message)
+      setError(err.message || 'Could not change your password.')
+    } finally {
+      setSavingPassword(false)
     }
   }
 
@@ -215,13 +228,21 @@ export default function Profile() {
               <button
                 type="button"
                 className="btn btn-ghost"
-                onClick={() => setEditing(false)}
+                onClick={() => {
+                  setProfileData({
+                    name: currentUser.name || '',
+                    email: currentUser.email || '',
+                    phone: currentUser.phone || '',
+                  })
+                  setEditing(false)
+                }}
+                disabled={savingProfile}
               >
                 Cancel
               </button>
 
-              <button type="submit" className="btn btn-amber">
-                Save Changes
+              <button type="submit" className="btn btn-amber" disabled={savingProfile}>
+                {savingProfile ? 'Saving...' : 'Save Changes'}
               </button>
             </div>
 
@@ -350,12 +371,13 @@ export default function Profile() {
                 type="button"
                 className="btn btn-ghost"
                 onClick={() => setChangingPassword(false)}
+                disabled={savingPassword}
               >
                 Cancel
               </button>
 
-              <button type="submit" className="btn btn-amber">
-                Update Password
+              <button type="submit" className="btn btn-amber" disabled={savingPassword}>
+                {savingPassword ? 'Updating...' : 'Update Password'}
               </button>
 
             </div>

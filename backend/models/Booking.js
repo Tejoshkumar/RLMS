@@ -42,7 +42,7 @@ const bookingSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['active', 'cancelled'],
+      enum: ['active', 'cancelled', 'completed'],
       default: 'active',
     },
   },
@@ -52,6 +52,7 @@ const bookingSchema = new mongoose.Schema(
 );
 
 bookingSchema.index({ lockerId: 1, bookingDate: 1, status: 1 });
+bookingSchema.index({ status: 1, bookingDate: 1 });
 
 const Booking = mongoose.model('Booking', bookingSchema);
 

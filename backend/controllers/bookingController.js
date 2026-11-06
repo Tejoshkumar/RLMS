@@ -133,8 +133,8 @@ export const cancelBooking = async (req, res, next) => {
     if (booking.userId.toString() !== req.user._id.toString()) {
       return res.status(403).json({ success: false, message: 'Forbidden' });
     }
-    if (booking.status === 'cancelled') {
-      return res.status(400).json({ success: false, message: 'Booking already cancelled' });
+    if (booking.status !== 'active') {
+      return res.status(400).json({ success: false, message: 'Only active bookings can be cancelled' });
     }
     booking.status = 'cancelled';
     await booking.save();

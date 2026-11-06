@@ -26,10 +26,40 @@ export const updateUserProfile = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    const { name, phone } = req.body;
+    const { name, email, phone } = req.body;
 
-    if (name) user.name = name;
-    if (phone) user.phone = phone;
+    if (name !== undefined) {
+      const normalizedName = String(name).trim();
+      if (!normalizedName) {
+        return res.status(400).json({ success: false, message: 'Name cannot be empty' });
+      }
+      user.name = normalizedName;
+    }
+
+    if (email !== undefined) {
+      const normalizedEmail = String(email).trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+        return res.status(400).json({ success: false, message: 'Please provide a valid email address' });
+      }
+
+      const emailInUse = await User.findOne({
+        email: normalizedEmail,
+        _id: { $ne: user._id },
+      });
+      if (emailInUse) {
+        return res.status(409).json({ success: false, message: 'User already exists with this email' });
+      }
+
+      user.email = normalizedEmail;
+    }
+
+    if (phone !== undefined) {
+      const normalizedPhone = String(phone).trim();
+      if (!normalizedPhone) {
+        return res.status(400).json({ success: false, message: 'Phone cannot be empty' });
+      }
+      user.phone = normalizedPhone;
+    }
 
     const updatedUser = await user.save();
 
@@ -45,6 +75,9 @@ export const updateUserProfile = async (req, res, next) => {
       }
     });
   } catch (error) {
+    if (error.code === 11000 && error.keyPattern?.email) {
+      return res.status(409).json({ success: false, message: 'User already exists with this email' });
+    }
     next(error);
   }
 };
